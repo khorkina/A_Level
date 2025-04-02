@@ -1,8 +1,16 @@
+"""
+A Level Study Resources - Streamlit Application
+"""
+
 import os
 import streamlit as st
 from utils.pdf_handler import display_pdf
 
-# Set page configuration
+# Define constants
+STATIC_CONTENT_PATH = "static_content"
+EXAM_MATERIALS_PATH = os.path.join(STATIC_CONTENT_PATH, "ALEVEL", "EXAM_MATERIALS")
+
+# Configure the page
 st.set_page_config(
     page_title="A Level Study Resources",
     page_icon="📚",
@@ -10,169 +18,144 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Path to the static content extracted from the zip file
-STATIC_CONTENT_PATH = "static_content/ALEVEL/EXAM_MATERIALS"
+# Custom CSS to improve the appearance
+st.markdown("""
+    <style>
+    .main .block-container {
+        padding-top: 2rem;
+    }
+    .st-emotion-cache-16idsys {
+        font-size: 1.5rem;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Initialize session state for current file
-if 'current_file' not in st.session_state:
-    st.session_state['current_file'] = None
-if 'search_results' not in st.session_state:
-    st.session_state['search_results'] = []
-
-# Function to get all files in a directory recursively
+# Function to get files in a directory
 def get_files_in_directory(directory):
-    all_files = []
-    for root, dirs, files in os.walk(directory):
-        for file in files:
-            file_path = os.path.join(root, file)
-            all_files.append(file_path)
-    return all_files
-
-# Function to get file structure
-def get_file_structure(directory):
-    structure = []
-    for root, dirs, files in os.walk(directory):
-        # Add directories
-        for dir_name in dirs:
-            dir_path = os.path.join(root, dir_name)
-            structure.append((dir_path, True, root))
+    """
+    Get a list of files in a directory.
+    
+    Args:
+        directory (str): Path to the directory
         
-        # Add files
-        for file_name in files:
-            file_path = os.path.join(root, file_name)
-            structure.append((file_path, False, root))
+    Returns:
+        list: List of file paths
+    """
+    files = []
+    for root, _, filenames in os.walk(directory):
+        for filename in filenames:
+            files.append(os.path.join(root, filename))
+    return files
+
+# Function to get the file structure
+def get_file_structure(directory):
+    """
+    Get a dictionary with the file structure.
+    
+    Args:
+        directory (str): Path to the directory
+        
+    Returns:
+        dict: Dictionary with the file structure
+    """
+    structure = {}
+    
+    # Check if the directory exists
+    if not os.path.exists(directory):
+        st.error(f"Directory not found: {directory}")
+        st.error("Please make sure you've extracted the ALEVEL.zip file correctly.")
+        st.error("Run the setup script: `python setup.py`")
+        return structure
+    
+    # Get all the subjects (top-level directories)
+    subjects = [d for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))]
+    
+    for subject in subjects:
+        subject_path = os.path.join(directory, subject)
+        structure[subject] = {}
+        
+        # Get all the topics (second-level directories)
+        topics = [d for d in os.listdir(subject_path) if os.path.isdir(os.path.join(subject_path, d))]
+        
+        for topic in topics:
+            topic_path = os.path.join(subject_path, topic)
+            structure[subject][topic] = []
+            
+            # Get all files in the topic directory
+            for root, _, files in os.walk(topic_path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, topic_path)
+                    structure[subject][topic].append({
+                        'name': relative_path,
+                        'path': file_path
+                    })
     
     return structure
 
-# Get all files and file structure
-all_files = get_files_in_directory(STATIC_CONTENT_PATH)
-file_structure = get_file_structure(STATIC_CONTENT_PATH)
+# Define the title and introduction
+st.title("A Level Study Resources 📚")
+st.markdown("""
+Welcome to the A Level Study Resources application! This tool is designed to help
+you navigate and access A Level study materials for various subjects.
 
-# Main title
-st.title("A Level Study Resources")
+Browse the subjects and topics in the sidebar, and click on any file to view its contents.
+""")
 
-# Sidebar for navigation
+# Get the file structure
+file_structure = get_file_structure(EXAM_MATERIALS_PATH)
+
+# Create sidebar for navigation
 with st.sidebar:
     st.header("Navigation")
     
-    # Search functionality
-    st.subheader("Search")
-    search_query = st.text_input("Search for topics or files")
+    # Create a search box
+    search_query = st.text_input("Search for topics or files:", "")
     
-    if search_query:
-        # Search for files/folders that match the query
-        search_results = []
-        for path, is_dir, parent in file_structure:
-            if search_query.lower() in os.path.basename(path).lower():
-                search_results.append((path, is_dir, parent))
+    # Display the file structure
+    selected_subject = st.selectbox("Select Subject:", list(file_structure.keys()))
+    
+    if selected_subject:
+        selected_topic = st.selectbox("Select Topic:", list(file_structure[selected_subject].keys()))
         
-        st.session_state.search_results = search_results
-        
-        if search_results:
-            st.subheader("Search Results")
-            for idx, (path, is_dir, _) in enumerate(search_results):
-                file_name = os.path.basename(path)
-                if is_dir:
-                    st.write(f"📁 {file_name}")
-                else:
-                    if st.button(f"📄 {file_name}", key=f"search_{idx}"):
-                        st.session_state.current_file = path
-                        st.rerun()
-        else:
-            st.info("No matching results found")
-    
-    # Display file structure for navigation
-    st.subheader("Subjects and Topics")
-    
-    # Get all top-level directories (subjects)
-    subject_dirs = [d for d in os.listdir(STATIC_CONTENT_PATH) if os.path.isdir(os.path.join(STATIC_CONTENT_PATH, d))]
-    
-    # Group files by subject
-    for subject_dir in subject_dirs:
-        subject_path = os.path.join(STATIC_CONTENT_PATH, subject_dir)
-        subject_name = subject_dir.replace("_Materials", "")
-        
-        with st.expander(f"📚 {subject_name}"):
-            # Get topics within this subject
-            topic_paths = [
-                os.path.join(subject_path, d) 
-                for d in os.listdir(subject_path) 
-                if os.path.isdir(os.path.join(subject_path, d))
-            ]
+        if selected_topic:
+            # Filter files based on search query if provided
+            files = file_structure[selected_subject][selected_topic]
+            if search_query:
+                files = [f for f in files if search_query.lower() in f['name'].lower()]
             
-            # Get files directly in subject folder
-            subject_files = [
-                os.path.join(subject_path, f)
-                for f in os.listdir(subject_path)
-                if os.path.isfile(os.path.join(subject_path, f))
-            ]
-            
-            # Display files directly under the subject
-            for file_path in subject_files:
-                file_name = os.path.basename(file_path)
-                if st.button(f"📄 {file_name}", key=file_path):
-                    st.session_state.current_file = file_path
-                    st.rerun()
-            
-            # Display topics and their files
-            for topic_path in topic_paths:
-                topic_name = os.path.basename(topic_path)
-                st.write(f"📂 {topic_name}")
-                
-                # Get files within this topic
-                if os.path.isdir(topic_path):
-                    try:
-                        topic_files = [
-                            os.path.join(topic_path, f)
-                            for f in os.listdir(topic_path)
-                            if os.path.isfile(os.path.join(topic_path, f))
-                        ]
-                        
-                        for file_path in topic_files:
-                            file_name = os.path.basename(file_path)
-                            if st.button(f"📄 {file_name}", key=file_path):
-                                st.session_state.current_file = file_path
-                                st.rerun()
-                    except Exception as e:
-                        st.error(f"Error accessing {topic_path}: {e}")
+            # Display the files
+            st.write("Files:")
+            for file in files:
+                if st.button(file['name'], key=file['path']):
+                    st.session_state.selected_file = file['path']
 
-# Main content area
-if st.session_state.current_file:
-    file_name = os.path.basename(st.session_state.current_file)
-    st.subheader(f"Viewing: {file_name}")
+# Display the selected file
+if 'selected_file' in st.session_state:
+    file_path = st.session_state.selected_file
+    file_name = os.path.basename(file_path)
     
-    if file_name.lower().endswith('.pdf'):
-        display_pdf(st.session_state.current_file)
-    elif file_name.lower().endswith(('.jpg', '.jpeg', '.png')):
-        st.image(st.session_state.current_file, caption=file_name)
-    elif file_name.lower().endswith(('.txt', '.csv')):
-        try:
-            with open(st.session_state.current_file, 'r') as f:
-                content = f.read()
-            st.text_area("File content", content, height=300)
-        except UnicodeDecodeError:
-            st.error("Unable to display this file type due to encoding issues.")
+    st.header(f"Viewing: {file_name}")
+    
+    # Display the file based on its extension
+    file_ext = os.path.splitext(file_path)[1].lower()
+    
+    if file_ext in ['.pdf']:
+        display_pdf(file_path)
+    elif file_ext in ['.txt', '.md']:
+        with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            st.text(f.read())
+    elif file_ext in ['.jpg', '.jpeg', '.png', '.gif']:
+        st.image(file_path)
     else:
-        st.warning(f"Cannot display this file type. File: {file_name}")
-else:
-    st.info("Select a file from the sidebar to view its contents.")
-    
-    # Display welcome message with instructions
-    st.markdown("""
-    ## Welcome to A Level Study Resources!
-    
-    This application helps you access A Level study materials for various subjects.
-    
-    **Instructions:**
-    1. Use the sidebar to navigate through subjects and topics
-    2. Click on any file to view its contents
-    3. Use the search box to find specific topics or files
-    
-    ### Available Subjects:
-    - Business
-    - English
-    - Psychology
-    - Sociology
-    
-    Happy studying!
-    """)
+        st.warning(f"Cannot display file of type: {file_ext}")
+        st.write("You can download the file instead.")
+        
+    # Add a download button
+    with open(file_path, "rb") as file:
+        st.download_button(
+            label="Download File",
+            data=file,
+            file_name=file_name,
+            mime="application/octet-stream"
+        )
